@@ -53,10 +53,11 @@ common_shared_libraries := \
 	libselinux \
 	libutils \
 	libhardware \
-	libsoftkeymaster \
 	libbase \
-	libsoftkeymasterdevice \
-	libkeymaster_messages \
+	libhwbinder \
+	libhidlbase \
+	android.hardware.keymaster@3.0 \
+	libkeystore_binder
 
 common_static_libraries := \
 	libbootloader_message \
@@ -66,6 +67,7 @@ common_static_libraries := \
 	libsquashfs_utils \
 	libscrypt_static \
 	libbatteryservice \
+	libavb \
 
 vold_conlyflags := -std=c11
 vold_cflags := -Werror -Wall -Wno-missing-field-initializers -Wno-unused-variable -Wno-unused-parameter

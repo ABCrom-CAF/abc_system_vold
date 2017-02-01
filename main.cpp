@@ -36,11 +36,9 @@
 #include <sys/types.h>
 #include <getopt.h>
 #include <fcntl.h>
-#include <dirent.h>
 #include <fs_mgr.h>
 
-static int process_config(VolumeManager *vm);
-static void coldboot(const char *path);
+static int process_config(VolumeManager *vm, bool* has_adoptable);
 static void parse_args(int argc, char** argv);
 
 struct fstab *fstab;
@@ -106,7 +104,9 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
-    if (process_config(vm)) {
+    bool has_adoptable;
+
+    if (process_config(vm, &has_adoptable)) {
         PLOG(ERROR) << "Error reading configuration... continuing anyways";
     }
 
@@ -114,9 +114,6 @@ int main(int argc, char** argv) {
         PLOG(ERROR) << "Unable to start NetlinkManager";
         exit(1);
     }
-
-    coldboot("/sys/block");
-//    coldboot("/sys/class/switch");
 
     /*
      * Now that we're up, we can respond to commands
@@ -131,9 +128,13 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
+    // This call should go after listeners are started to avoid
+    // a deadlock between vold and init (see b/34278978 for details)
+    property_set("vold.has_adoptable", has_adoptable ? "1" : "0");
+
     // Eventually we'll become the monitoring thread
     while(1) {
-        sleep(1000);
+        pause();
     }
 
     LOG(ERROR) << "Vold exiting";
@@ -164,50 +165,7 @@ static void parse_args(int argc, char** argv) {
     CHECK(android::vold::sFsckUntrustedContext != nullptr);
 }
 
-static void do_coldboot(DIR *d, int lvl) {
-    struct dirent *de;
-    int dfd, fd;
-
-    dfd = dirfd(d);
-
-    fd = openat(dfd, "uevent", O_WRONLY | O_CLOEXEC);
-    if(fd >= 0) {
-        write(fd, "add\n", 4);
-        close(fd);
-    }
-
-    while((de = readdir(d))) {
-        DIR *d2;
-
-        if (de->d_name[0] == '.')
-            continue;
-
-        if (de->d_type != DT_DIR && lvl > 0)
-            continue;
-
-        fd = openat(dfd, de->d_name, O_RDONLY | O_DIRECTORY);
-        if(fd < 0)
-            continue;
-
-        d2 = fdopendir(fd);
-        if(d2 == 0)
-            close(fd);
-        else {
-            do_coldboot(d2, lvl + 1);
-            closedir(d2);
-        }
-    }
-}
-
-static void coldboot(const char *path) {
-    DIR *d = opendir(path);
-    if(d) {
-        do_coldboot(d, 0);
-        closedir(d);
-    }
-}
-
-static int process_config(VolumeManager *vm) {
+static int process_config(VolumeManager *vm, bool* has_adoptable) {
     std::string path(android::vold::DefaultFstabPath());
     fstab = fs_mgr_read_fstab(path.c_str());
     if (!fstab) {
@@ -216,7 +174,7 @@ static int process_config(VolumeManager *vm) {
     }
 
     /* Loop through entries looking for ones that vold manages */
-    bool has_adoptable = false;
+    *has_adoptable = false;
     for (int i = 0; i < fstab->num_entries; i++) {
         if (fs_mgr_is_voldmanaged(&fstab->recs[i])) {
             if (fs_mgr_is_nonremovable(&fstab->recs[i])) {
@@ -230,7 +188,7 @@ static int process_config(VolumeManager *vm) {
 
             if (fs_mgr_is_encryptable(&fstab->recs[i])) {
                 flags |= android::vold::Disk::Flags::kAdoptable;
-                has_adoptable = true;
+                *has_adoptable = true;
             }
             if (fs_mgr_is_noemulatedsd(&fstab->recs[i])
                     || property_get_bool("vold.debug.default_primary", false)) {
@@ -241,6 +199,5 @@ static int process_config(VolumeManager *vm) {
                     new VolumeManager::DiskSource(sysPattern, nickname, flags)));
         }
     }
-    property_set("vold.has_adoptable", has_adoptable ? "1" : "0");
     return 0;
 }
