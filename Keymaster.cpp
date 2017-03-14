@@ -94,7 +94,7 @@ bool KeymasterOperation::finish(std::string* output) {
 }
 
 Keymaster::Keymaster() {
-    mDevice = ::android::hardware::keymaster::V3_0::IKeymasterDevice::getService("keymaster");
+    mDevice = ::android::hardware::keymaster::V3_0::IKeymasterDevice::getService();
 }
 
 bool Keymaster::generateKey(const AuthorizationSet& inParams, std::string* key) {
@@ -196,7 +196,12 @@ bool Keymaster::isSecure() {
 using namespace ::android::vold;
 
 int keymaster_compatibility_cryptfs_scrypt() {
-    return Keymaster().isSecure();
+    Keymaster dev;
+    if (!dev) {
+        LOG(ERROR) << "Failed to initiate keymaster session";
+        return -1;
+    }
+    return dev.isSecure();
 }
 
 int keymaster_create_key_for_cryptfs_scrypt(uint32_t rsa_key_size,
@@ -278,25 +283,25 @@ int keymaster_sign_object_for_cryptfs_scrypt(const uint8_t* key_blob,
 
     while (true) {
         op = dev.begin(KeyPurpose::SIGN, key, paramBuilder, &outParams);
-        if (op.error() == ErrorCode::KEY_RATE_LIMIT_EXCEEDED) {
+        if (op.errorCode() == ErrorCode::KEY_RATE_LIMIT_EXCEEDED) {
             sleep(ratelimit);
             continue;
         } else break;
     }
 
-    if (op.error() != ErrorCode::OK) {
-        LOG(ERROR) << "Error starting keymaster signature transaction: " << int32_t(op.error());
+    if (op.errorCode() != ErrorCode::OK) {
+        LOG(ERROR) << "Error starting keymaster signature transaction: " << int32_t(op.errorCode());
         return -1;
     }
 
     if (!op.updateCompletely(input, &output)) {
         LOG(ERROR) << "Error sending data to keymaster signature transaction: "
-                   << uint32_t(op.error());
+                   << uint32_t(op.errorCode());
         return -1;
     }
 
     if (!op.finish(&output)) {
-        LOG(ERROR) << "Error finalizing keymaster signature transaction: " << int32_t(op.error());
+        LOG(ERROR) << "Error finalizing keymaster signature transaction: " << int32_t(op.errorCode());
         return -1;
     }
 

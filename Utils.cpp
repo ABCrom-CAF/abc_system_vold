@@ -589,11 +589,6 @@ std::string BuildDataProfilesDePath(userid_t userId) {
     return StringPrintf("%s/misc/profiles/cur/%u", BuildDataPath(nullptr).c_str(), userId);
 }
 
-std::string BuildDataProfilesForeignDexDePath(userid_t userId) {
-    std::string profiles_path = BuildDataProfilesDePath(userId);
-    return StringPrintf("%s/foreign-dex", profiles_path.c_str());
-}
-
 std::string BuildDataPath(const char* volumeUuid) {
     // TODO: unify with installd path generation logic
     if (volumeUuid == nullptr) {
@@ -638,12 +633,6 @@ dev_t GetDevice(const std::string& path) {
     } else {
         return sb.st_dev;
     }
-}
-
-std::string DefaultFstabPath() {
-    char hardware[PROPERTY_VALUE_MAX];
-    property_get("ro.hardware", hardware, "");
-    return StringPrintf("/fstab.%s", hardware);
 }
 
 status_t RestoreconRecursive(const std::string& path) {
