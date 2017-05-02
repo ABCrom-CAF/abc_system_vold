@@ -137,7 +137,7 @@ static bool fill_key(const std::string& key, ext4_encryption_key* ext4_key) {
 static std::string keyname(const std::string& raw_ref) {
     std::ostringstream o;
     o << "ext4:";
-    for (auto i : raw_ref) {
+    for (unsigned char i : raw_ref) {
         o << std::hex << std::setw(2) << std::setfill('0') << (int)i;
     }
     return o.str();
@@ -170,13 +170,6 @@ static bool install_key(const std::string& key, std::string* raw_ref) {
     }
     LOG(DEBUG) << "Added key " << key_id << " (" << ref << ") to keyring " << device_keyring
                << " in process " << getpid();
-
-    // *TODO* Remove this code when kernel is fixed - see b/28373400
-    // Kernel preserves caches across a key insertion with ext4ice, which leads
-    // to contradictory dirents
-    if (!android::base::WriteStringToFile("3", "/proc/sys/vm/drop_caches")) {
-        PLOG(ERROR) << "Failed to drop_caches";
-    }
 
     return true;
 }
