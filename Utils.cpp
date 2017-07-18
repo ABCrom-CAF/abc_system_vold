@@ -20,11 +20,11 @@
 
 #include <android-base/file.h>
 #include <android-base/logging.h>
+#include <android-base/properties.h>
 #include <android-base/stringprintf.h>
 #include <cutils/fs.h>
-#include <cutils/properties.h>
-#include <private/android_filesystem_config.h>
 #include <logwrap/logwrap.h>
+#include <private/android_filesystem_config.h>
 
 #include <mutex>
 #include <dirent.h>
@@ -34,6 +34,7 @@
 #include <sys/mount.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/sysmacros.h>
 #include <sys/wait.h>
 #include <sys/statvfs.h>
 
@@ -292,7 +293,7 @@ status_t ForkExecvp(const std::vector<std::string>& args,
         LOG(ERROR) << "Failed to setexeccon";
         abort();
     }
-    FILE* fp = popen(cmd.c_str(), "r");
+    FILE* fp = popen(cmd.c_str(), "r"); // NOLINT
     if (setexeccon(nullptr)) {
         LOG(ERROR) << "Failed to setexeccon";
         abort();
@@ -369,6 +370,17 @@ status_t ReadRandomBytes(size_t bytes, std::string& out) {
     } else {
         return -EIO;
     }
+}
+
+status_t GenerateRandomUuid(std::string& out) {
+    status_t res = ReadRandomBytes(16, out);
+    if (res == OK) {
+        out[6] &= 0x0f;  /* clear version        */
+        out[6] |= 0x40;  /* set to version 4     */
+        out[8] &= 0x3f;  /* clear variant        */
+        out[8] |= 0x80;  /* set to IETF variant  */
+    }
+    return res;
 }
 
 status_t HexToStr(const std::string& hex, std::string& str) {
@@ -608,15 +620,15 @@ std::string BuildDataMediaCePath(const char* volumeUuid, userid_t userId) {
 std::string BuildDataUserCePath(const char* volumeUuid, userid_t userId) {
     // TODO: unify with installd path generation logic
     std::string data(BuildDataPath(volumeUuid));
-    if (volumeUuid == nullptr) {
-        if (userId == 0) {
-            return StringPrintf("%s/data", data.c_str());
-        } else {
-            return StringPrintf("%s/user/%u", data.c_str(), userId);
+    if (volumeUuid == nullptr && userId == 0) {
+        std::string legacy = StringPrintf("%s/data", data.c_str());
+        struct stat sb;
+        if (lstat(legacy.c_str(), &sb) == 0 && S_ISDIR(sb.st_mode)) {
+            /* /data/data is dir, return /data/data for legacy system */
+            return legacy;
         }
-    } else {
-        return StringPrintf("%s/user/%u", data.c_str(), userId);
     }
+    return StringPrintf("%s/user/%u", data.c_str(), userId);
 }
 
 std::string BuildDataUserDePath(const char* volumeUuid, userid_t userId) {
@@ -638,19 +650,12 @@ dev_t GetDevice(const std::string& path) {
 status_t RestoreconRecursive(const std::string& path) {
     LOG(VERBOSE) << "Starting restorecon of " << path;
 
-    // TODO: find a cleaner way of waiting for restorecon to finish
-    const char* cpath = path.c_str();
-    property_set("selinux.restorecon_recursive", "");
-    property_set("selinux.restorecon_recursive", cpath);
+    static constexpr const char* kRestoreconString = "selinux.restorecon_recursive";
 
-    char value[PROPERTY_VALUE_MAX];
-    while (true) {
-        property_get("selinux.restorecon_recursive", value, "");
-        if (strcmp(cpath, value) == 0) {
-            break;
-        }
-        usleep(100000); // 100ms
-    }
+    android::base::SetProperty(kRestoreconString, "");
+    android::base::SetProperty(kRestoreconString, path);
+
+    android::base::WaitForProperty(kRestoreconString, path);
 
     LOG(VERBOSE) << "Finished restorecon of " << path;
     return OK;
@@ -669,7 +674,7 @@ status_t SaneReadLinkAt(int dirfd, const char* path, char* buf, size_t bufsiz) {
 }
 
 bool IsRunningInEmulator() {
-    return property_get_bool("ro.kernel.qemu", 0);
+    return android::base::GetBoolProperty("ro.kernel.qemu", false);
 }
 
 }  // namespace vold

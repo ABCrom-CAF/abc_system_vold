@@ -26,6 +26,7 @@
 #include <sys/mount.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/sysmacros.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -180,7 +181,7 @@ static int setupDevMapperDevice(char* buffer, size_t len, const char* loopDevice
         }
         *createdDMDevice = true;
     } else {
-        strcpy(buffer, loopDevice);
+        strlcpy(buffer, loopDevice, len);
         *createdDMDevice = false;
     }
     return 0;
@@ -931,7 +932,7 @@ int VolumeManager::createAsec(const char *id, unsigned long numSectors, const ch
         cleanupDm = true;
     } else {
         sb.c_cipher = ASEC_SB_C_CIPHER_NONE;
-        strcpy(dmDevice, loopDevice);
+        strlcpy(dmDevice, loopDevice, sizeof(dmDevice));
     }
 
     /*
@@ -1895,7 +1896,7 @@ int VolumeManager::listMountedObbs(SocketClient* cli) {
     // Create a string to compare against that has a trailing slash
     int loopDirLen = strlen(VolumeManager::LOOPDIR);
     char loopDir[loopDirLen + 2];
-    strcpy(loopDir, VolumeManager::LOOPDIR);
+    strlcpy(loopDir, VolumeManager::LOOPDIR, sizeof(loopDir));
     loopDir[loopDirLen++] = '/';
     loopDir[loopDirLen] = '\0';
 
