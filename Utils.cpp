@@ -17,6 +17,7 @@
 #include "sehandle.h"
 #include "Utils.h"
 #include "Process.h"
+#include "VolumeManager.h"
 
 #include <android-base/file.h>
 #include <android-base/logging.h>
@@ -126,22 +127,22 @@ status_t ForceUnmount(const std::string& path) {
     }
     // Apps might still be handling eject request, so wait before
     // we start sending signals
-    sleep(5);
+    if (!VolumeManager::shutting_down) sleep(5);
 
     Process::killProcessesWithOpenFiles(cpath, SIGINT);
-    sleep(5);
+    if (!VolumeManager::shutting_down) sleep(5);
     if (!umount2(cpath, UMOUNT_NOFOLLOW) || errno == EINVAL || errno == ENOENT) {
         return OK;
     }
 
     Process::killProcessesWithOpenFiles(cpath, SIGTERM);
-    sleep(5);
+    if (!VolumeManager::shutting_down) sleep(5);
     if (!umount2(cpath, UMOUNT_NOFOLLOW) || errno == EINVAL || errno == ENOENT) {
         return OK;
     }
 
     Process::killProcessesWithOpenFiles(cpath, SIGKILL);
-    sleep(5);
+    if (!VolumeManager::shutting_down) sleep(5);
     if (!umount2(cpath, UMOUNT_NOFOLLOW) || errno == EINVAL || errno == ENOENT) {
         return OK;
     }
@@ -154,17 +155,17 @@ status_t KillProcessesUsingPath(const std::string& path) {
     if (Process::killProcessesWithOpenFiles(cpath, SIGINT) == 0) {
         return OK;
     }
-    sleep(5);
+    if (!VolumeManager::shutting_down) sleep(5);
 
     if (Process::killProcessesWithOpenFiles(cpath, SIGTERM) == 0) {
         return OK;
     }
-    sleep(5);
+    if (!VolumeManager::shutting_down) sleep(5);
 
     if (Process::killProcessesWithOpenFiles(cpath, SIGKILL) == 0) {
         return OK;
     }
-    sleep(5);
+    if (!VolumeManager::shutting_down) sleep(5);
 
     // Send SIGKILL a second time to determine if we've
     // actually killed everyone with open files
@@ -350,18 +351,20 @@ pid_t ForkExecvpAsync(const std::vector<std::string>& args) {
 }
 
 status_t ReadRandomBytes(size_t bytes, std::string& out) {
-    out.clear();
+    out.resize(bytes);
+    return ReadRandomBytes(bytes, &out[0]);
+}
 
+status_t ReadRandomBytes(size_t bytes, char* buf) {
     int fd = TEMP_FAILURE_RETRY(open("/dev/urandom", O_RDONLY | O_CLOEXEC | O_NOFOLLOW));
     if (fd == -1) {
         return -errno;
     }
 
-    char buf[BUFSIZ];
     size_t n;
-    while ((n = TEMP_FAILURE_RETRY(read(fd, &buf[0], std::min(sizeof(buf), bytes)))) > 0) {
-        out.append(buf, n);
+    while ((n = TEMP_FAILURE_RETRY(read(fd, &buf[0], bytes))) > 0) {
         bytes -= n;
+        buf += n;
     }
     close(fd);
 
@@ -429,6 +432,15 @@ status_t StrToHex(const std::string& str, std::string& hex) {
     for (size_t i = 0; i < str.size(); i++) {
         hex.push_back(kLookup[(str[i] & 0xF0) >> 4]);
         hex.push_back(kLookup[str[i] & 0x0F]);
+    }
+    return OK;
+}
+
+status_t StrToHex(const KeyBuffer& str, KeyBuffer& hex) {
+    hex.clear();
+    for (size_t i = 0; i < str.size(); i++) {
+        hex.push_back(kLookup[(str.data()[i] & 0xF0) >> 4]);
+        hex.push_back(kLookup[str.data()[i] & 0x0F]);
     }
     return OK;
 }
